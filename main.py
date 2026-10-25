@@ -1,7 +1,9 @@
+import csv
 from collections import defaultdict
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from io import StringIO
 
-from fastapi import FastAPI, Form, HTTPException
+from fastapi import FastAPI, Form, HTTPException, Response
 from fastapi.responses import HTMLResponse
 
 app = FastAPI(title="Hati")
@@ -124,17 +126,28 @@ def add_expense(
     people = [person.strip() for person in shares.split(",") if person.strip()]
     if not value.is_finite() or not description.strip() or not paid_by.strip() or not people or value <= 0:
         raise HTTPException(422, "Provide a description, positive amount, payer, and at least one roommate.")
-    expenses.append(
-        {
-            "description": description.strip(),
-            "amount": value.quantize(Decimal("0.01")),
-            "paid_by": paid_by.strip(),
-            "shares": people,
-        }
-    )
+    expenses.append({"description": description.strip(), "amount": value.quantize(Decimal("0.01")), "paid_by": paid_by.strip(), "shares": people})
     return {"ok": True, "settlements": balances()}
 
 
 @app.get("/settlements")
 def get_settlements() -> list[dict[str, str]]:
     return balances()
+
+
+@app.post("/expenses/export")
+def export_expenses() -> Response:
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["description", "amount", "paid_by", "shares"])
+    for expense in expenses:
+        description = expense["description"]
+        amount = expense["amount"]
+        paid_by = expense["paid_by"]
+        shares = expense["shares"]
+        assert isinstance(description, str)
+        assert isinstance(amount, Decimal)
+        assert isinstance(paid_by, str)
+        assert isinstance(shares, list)
+        writer.writerow([description, f"{amount:.2f}", paid_by, ", ".join(shares)])
+    return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="expenses.csv"'})
